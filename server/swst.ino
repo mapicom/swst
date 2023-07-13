@@ -189,8 +189,8 @@ void loop() {
   if(ntp.synced()) {
     uint16_t curMS = ntp.ms();
     if(curMS >= 0 && curMS <= 5) {
-      char str[25];
-      sprintf(str, "SwSt;%02d;%02d;%02d;%02d;%02d;%02d;%d;", ntp.second(), ntp.minute(), ntp.hour(), ntp.day(), ntp.month(), ntp.year(), ntp.dayWeek());
+      char str[26];
+      sprintf(str, "SwSt;%02d;%02d;%02d;%02d;%02d;%02d;%d", ntp.second(), ntp.minute(), ntp.hour(), ntp.day(), ntp.month(), ntp.year(), ntp.dayWeek());
       tx.sendData(str);
       digitalWrite(LED_BUILTIN, prevState);
       if(prevState == LOW) prevState = HIGH;
