@@ -3,7 +3,7 @@
 #include <GyverNTP.h>
 
 #define G433_FAST
-#define G433_SPEED 8000
+#define G433_SPEED 10000
 
 #define WIFI_TIMEOUT 8000
 #define BLINK_INTERVAL 500
@@ -19,7 +19,7 @@ int prevState = LOW;
 uint8_t ntpState = 0;
 
 GyverNTP ntp(0, 600);
-Gyver433_TX<D5, G433_XOR> tx;
+Gyver433_TX<D1, G433_XOR> tx;
 
 bool enterSSID() {
   while(!Serial.available()) {
@@ -177,10 +177,10 @@ void setup() {
   ntp.begin();
   ntp.setHost(userNTP.c_str());
   ntp.asyncMode(false);
-  ntp.updateNow();
+  //ntp.updateNow();
   Serial.println("All done. Running radio.");
   digitalWrite(LED_BUILTIN, HIGH);
-  Serial.print("Entering shell-mode.\nWARNING: Entering command to shell makes long system's freeze.\n# ");
+  Serial.println("Entering shell-mode.\nWARNING: Entering command to shell makes long system's freeze.");
 }
 
 void loop() {
@@ -189,9 +189,25 @@ void loop() {
   if(ntp.synced()) {
     uint16_t curMS = ntp.ms();
     if(curMS >= 0 && curMS <= 5) {
-      char str[26];
-      sprintf(str, "SwSt;%02d;%02d;%02d;%02d;%02d;%02d;%d", ntp.second(), ntp.minute(), ntp.hour(), ntp.day(), ntp.month(), ntp.year(), ntp.dayWeek());
-      tx.sendData(str);
+      uint8_t signalData[12] = {};
+      // ======= PROTOCOL FORMAT =======
+      // Packet ID
+      signalData[0] = 'S';
+      signalData[1] = 'w';
+      signalData[2] = 'S';
+      signalData[3] = 't';
+      // Time
+      signalData[4] = ntp.second(); // Second
+      signalData[5] = ntp.minute(); // Minute
+      signalData[6] = ntp.hour(); // Hour
+      // Date
+      signalData[7] = ntp.day(); // Day
+      signalData[8] = ntp.month(); // Month
+      signalData[9] = ntp.year() & 0xFF; // Year 1
+      signalData[10] = (ntp.year() >> 8) & 0xFF; // Year 2
+      signalData[11] = ntp.dayWeek(); // Day of week
+      // ===============================
+      tx.sendData(signalData);
       digitalWrite(LED_BUILTIN, prevState);
       if(prevState == LOW) prevState = HIGH;
       else if(prevState == HIGH) prevState = LOW;
@@ -200,10 +216,10 @@ void loop() {
 
   uint8_t stat = ntp.status();
   if(stat != 0 && stat != ntpState) {
-    Serial.printf("\nWARNING: NTP status is not 0, it's %d\n# ", stat);
+    Serial.printf("WARNING: NTP status is not 0, it's %d\n# ", stat);
     ntpState = stat;
   } else if(stat == 0 && ntpState != 0) {
-    Serial.print("\nNTP status returned to 0\n# ");
+    Serial.print("NTP status returned to 0\n# ");
   }
 
   if(Serial.available() > 0) {
@@ -211,40 +227,39 @@ void loop() {
     cmd.trim();
     if(cmd == "reset_ntp") {
       SPIFFS.remove("ntp.txt");
-      Serial.println("\nNTP configuration removed. Rebooting...");
+      Serial.println("NTP configuration removed. Rebooting...");
       ntp.end();
       WiFi.disconnect(false);
       ESP.restart();
     } else if(cmd == "reset_wifi") {
       SPIFFS.remove("ssid.txt");
       SPIFFS.remove("pass.txt");
-      Serial.println("\nWi-Fi configuration removed. Rebooting...");
+      Serial.println("Wi-Fi configuration removed. Rebooting...");
       ntp.end();
       WiFi.disconnect(false);
       ESP.restart();
     } else if(cmd == "date") {
-      Serial.printf("\n%s %s\n", ntp.dateString(), ntp.timeString());
+      Serial.printf("%s %s\n", ntp.dateString(), ntp.timeString());
     } else if(cmd == "reboot") {
       ntp.end();
       WiFi.disconnect(false);
       Serial.println("Rebooting...");
       ESP.restart();
     } else if(cmd == "mem") {
-      Serial.printf("\nFree heap size: %d\n", ESP.getFreeHeap());
+      Serial.printf("Free heap size: %d\n", ESP.getFreeHeap());
     } else if(cmd == "stop_ntp") {
-      Serial.print("\nStopping NTP daemon... ");
+      Serial.print("Stopping NTP daemon... ");
       ntp.end();
       Serial.println("ok");
     } else if(cmd == "start_ntp") {
-      Serial.print("\nStarting NTP daemon... ");
+      Serial.print("Starting NTP daemon... ");
       ntp.begin();
       ntp.updateNow();
       Serial.println("ok");
     } else if(cmd == "update_ntp") {
       Serial.printf("Update status: %d\n", ntp.updateNow());
     } else {
-      Serial.println("\nUnknown command.");
+      Serial.println("Unknown command.");
     }
-    Serial.print("# ");
   }
 }
