@@ -3,10 +3,10 @@
 #include <GyverNTP.h>
 
 #define G433_FAST
-#define G433_SPEED 10000
+#define G433_SPEED 2000
 
 #define WIFI_TIMEOUT 8000
-#define BLINK_INTERVAL 500
+#define BLINK_INTERVAL 250
 #define DEFAULT_NTP "pool.ntp.org"
 #define FIRMWARE_VERSION "0.1"
 
@@ -19,7 +19,7 @@ int prevState = LOW;
 uint8_t ntpState = 0;
 
 GyverNTP ntp(0, 600);
-Gyver433_TX<D1, G433_XOR> tx;
+Gyver433_TX<D1> tx;
 
 bool enterSSID() {
   while(!Serial.available()) {
