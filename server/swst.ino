@@ -95,6 +95,7 @@ void setup() {
   }
   delay(100);
   Serial.printf("\nSWST Server %s (C) 2023 Mapicom. All rights reserved.\n", FIRMWARE_VERSION);
+  Serial.printf("ESP8266 SDK Version: %s\n", ESP.getSdkVersion());
   Serial.print("Enabling file system... ");
   SPIFFS.begin();
   FSInfo fs_info;
@@ -156,20 +157,32 @@ void setup() {
       delay(100);
       if(millis()-timeoutTimer > WIFI_TIMEOUT) {
         isSuccess = false;
-        SPIFFS.remove("ssid.txt");
-        SPIFFS.remove("pass.txt");
-        Serial.println("timeout.\nConnection timeouted, please reboot your device and enter new credentials.");
+        Serial.println("timeout.\nConnection timeouted! Please reboot for try again or press Enter for reset credentials and reboot.");
+        WiFi.disconnect(false);
         break;
       }
     }
   }
   if(!isSuccess) {
+    while(!Serial.available()) {
+      digitalWrite(LED_BUILTIN, HIGH);
+      delay(100);
+      digitalWrite(LED_BUILTIN, LOW);
+      delay(100);
+    }
     while(true) {
-        digitalWrite(LED_BUILTIN, HIGH);
-        delay(BLINK_INTERVAL);
-        digitalWrite(LED_BUILTIN, LOW);
-        delay(BLINK_INTERVAL);
-     }
+      String answer = Serial.readString();
+      answer.trim();
+      if(answer == "") {
+        SPIFFS.remove("ssid.txt");
+        SPIFFS.remove("pass.txt");
+        Serial.println("Wi-Fi credentials have been reset. Rebooting...");
+        WiFi.disconnect(false);
+        ESP.restart();
+        return;
+      }
+    }
+    
   }
   Serial.println("ok");
   timeoutTimer = millis();
@@ -177,7 +190,6 @@ void setup() {
   ntp.begin();
   ntp.setHost(userNTP.c_str());
   ntp.asyncMode(false);
-  //ntp.updateNow();
   Serial.println("All done. Running radio.");
   digitalWrite(LED_BUILTIN, HIGH);
   Serial.println("Entering shell-mode.\nWARNING: Entering command to shell makes long system's freeze.");
