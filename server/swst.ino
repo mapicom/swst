@@ -1,4 +1,3 @@
-//#include <ESP8266WiFi.h>
 #include <Gyver433.h>
 #include <GyverNTP.h>
 
@@ -8,11 +7,12 @@
 #define WIFI_TIMEOUT 8000
 #define BLINK_INTERVAL 250
 #define DEFAULT_NTP "pool.ntp.org"
-#define FIRMWARE_VERSION "0.1"
+#define FIRMWARE_VERSION "0.2"
 
 String userSSID = "";
 String userPASS = "";
 String userNTP = "";
+uint8_t userTXID = 0;
 
 unsigned long timeoutTimer = millis();
 int prevState = LOW;
@@ -144,6 +144,10 @@ void setup() {
     ntpFile.close();
     Serial.println("NTP file loaded.");
   }
+  randomSeed(analogRead(A0));
+  userTXID = random(1, 125);
+  Serial.print("TXID: ");
+  Serial.println(userTXID);
   Serial.print("Checking Wi-Fi status... ");
   Serial.println(WiFi.status());
   Serial.print("Connecting to " + userSSID + "... ");
@@ -189,7 +193,7 @@ void setup() {
   Serial.printf("Using NTP server: %s\n", userNTP.c_str());
   ntp.begin();
   ntp.setHost(userNTP.c_str());
-  ntp.asyncMode(false);
+  ntp.asyncMode(true);
   Serial.println("All done. Running radio.");
   digitalWrite(LED_BUILTIN, HIGH);
   Serial.println("Entering shell-mode.\nWARNING: Entering command to shell makes long system's freeze.");
@@ -201,7 +205,7 @@ void loop() {
   if(ntp.synced()) {
     uint16_t curMS = ntp.ms();
     if(curMS >= 0 && curMS <= 5) {
-      uint8_t signalData[12] = {};
+      uint8_t signalData[13] = {};
       // ======= PROTOCOL FORMAT =======
       // Packet ID
       signalData[0] = 'S';
@@ -218,6 +222,7 @@ void loop() {
       signalData[9] = ntp.year() & 0xFF; // Year 1
       signalData[10] = (ntp.year() >> 8) & 0xFF; // Year 2
       signalData[11] = ntp.dayWeek(); // Day of week
+      signalData[12] = userTXID;
       // ===============================
       tx.sendData(signalData);
       digitalWrite(LED_BUILTIN, prevState);
