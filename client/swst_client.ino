@@ -6,7 +6,7 @@
 #define G433_FAST
 #define G433_SPEED 2000
 
-#define FIRMWARE_VERSION "0.1"
+#define FIRMWARE_VERSION "0.2"
 #define SIGNAL_TIMEOUT 10000
 #define TONE_PIN 9
 #define BLINK_INTERVAL 250
@@ -16,7 +16,7 @@
 #define SAVED_TZ_MIN_OFFSET SAVED_TZ_HOUR_OFFSET+4
 #define SAVED_STATE_OFFSET SAVED_TZ_MIN_OFFSET+4
 
-Gyver433_RX<2, 12> rx;
+Gyver433_RX<2, 13> rx;
 LiquidCrystal lcd(A4, A5, A7, A6, A1, A0);
 
 const char *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
@@ -24,6 +24,7 @@ const char *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", 
 unsigned long timeoutTimer = 0;
 unsigned long ledTimer = 0;
 bool justPrintedSignalLost = false;
+uint8_t usingTXID = 0;
 
 long timezoneHours = 7;
 long timezoneMinutes = 0;
@@ -184,6 +185,11 @@ void isr() {
 void loop() {
   if(rx.gotData()) {
     if(rx.buffer[0] == 'S' && rx.buffer[1] == 'w' && rx.buffer[2] == 'S' && rx.buffer[3] == 't') {
+      uint8_t txid = rx.buffer[12];
+      if(usingTXID == 0) usingTXID = txid;
+      else {
+        if(usingTXID != txid) return;
+      }
       uint8_t sec = rx.buffer[4];
       uint8_t min = rx.buffer[5];
       int8_t hour = static_cast<int8_t>(rx.buffer[6]);
@@ -257,7 +263,8 @@ void loop() {
       lcd.print(" SIGNAL");
       lcd.setCursor(0, 1);
       lcd.print("  LOST");
-      tone(TONE_PIN, 50, 2000);
+      usingTXID = 0;
+      tone(TONE_PIN, 50, 100);
       justPrintedSignalLost = true;
     }
   }
