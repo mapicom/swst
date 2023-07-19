@@ -228,7 +228,7 @@ void loop() {
 
 
   if(enc.tick()) {
-    if(rxStarted && enc.held(2)) {
+    if(enc.held(2)) {
       rxStarted = false;
       usingTXID = 0;
       timeoutTimer = 0;
@@ -236,12 +236,12 @@ void loop() {
       EEPROM.put(SAVED_STATE_OFFSET, 255);
       lcd.clear();
       lcd.setCursor(0, 0);
-      lcd.print("RESET");
+      lcd.print(" RESET");
       lcd.setCursor(0, 1);
-      lcd.print("DEVICE");
+      lcd.print(" DEVICE");
       while(true) delay(100);
     }
-    if(rxStarted && enc.held(0)) {
+    if(enc.held(0)) {
       detachInterrupt(0);
       rxStarted = false;
       usingTXID = 0;
