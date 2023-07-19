@@ -111,7 +111,7 @@ void setup() {
     lcd.setCursor(0, 0);
     lcd.print("USE UTC");
     lcd.setCursor(0, 1);
-    char formattedStr[6];
+    char formattedStr[8];
     int aHour = timezoneHours;
     if(timezoneHours < 0) aHour = -timezoneHours;
     else aHour = timezoneHours;
@@ -240,6 +240,18 @@ void loop() {
       lcd.setCursor(0, 1);
       lcd.print(" DEVICE");
       while(true) delay(100);
+    }
+    if(enc.held(1)) {
+      detachInterrupt(0);
+      rxStarted = false;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("TXID:");
+      lcd.setCursor(0, 1);
+      lcd.print(String(usingTXID));
+      delay(2000);
+      rxStarted = true;
+      attachInterrupt(0, isr, CHANGE);
     }
     if(enc.held(0)) {
       detachInterrupt(0);
