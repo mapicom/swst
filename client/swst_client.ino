@@ -1,6 +1,6 @@
 #define G433_FAST
 #define G433_SPEED 2000
-#define EB_CLICK 1000
+#define EB_CLICK 2000
 
 #include <Gyver433.h>
 #include <GyverWDT.h>
@@ -17,6 +17,7 @@
 #define SAVED_TZ_HOUR_OFFSET 0x1
 #define SAVED_TZ_MIN_OFFSET SAVED_TZ_HOUR_OFFSET+4
 #define SAVED_STATE_OFFSET SAVED_TZ_MIN_OFFSET+4
+#define SAVED_SPEAKER_STATE_OFFSET SAVED_STATE_OFFSET+1
 
 Gyver433_RX<2, 13> rx;
 LiquidCrystal lcd(A4, A5, A7, A6, A1, A0);
@@ -31,6 +32,7 @@ uint8_t usingTXID = 0;
 bool rxStarted = false;
 uint8_t changeTZState = 0;
 int8_t selectedInt = 0;
+uint8_t speakerState = 1;
 
 long timezoneHours = 7;
 long timezoneMinutes = 0;
@@ -84,11 +86,12 @@ bool isLeapYear(int year) {
 void setup() {
   Serial.begin(115200);
   while(!Serial) delay(10);
-  enc.setHoldTimeout(3000);
+  enc.setHoldTimeout(2000);
   pinMode(LED_BUILTIN, OUTPUT);
   lcd.begin(8, 2);
   uint8_t savedState;
   EEPROM.get(SAVED_STATE_OFFSET, savedState);
+  EEPROM.get(SAVED_SPEAKER_STATE_OFFSET, speakerState);
   if(savedState == 255) {
     Serial.println("I see it's your first start up. If you want to change timezone press Enter at any moment!");
     timezoneHours = 0;
@@ -191,20 +194,19 @@ void loop() {
       lcd.print(formatted);
       timeoutTimer = millis();
       justPrintedSignalLost = false;
-      if(sec == 0) noTone(TONE_PIN);
       if(min == 59) {
         if(sec == 55 || sec == 56 || sec == 57 || sec == 58 || sec == 59) {
-          tone(TONE_PIN, 800, 100);
+          if(speakerState > 0) tone(TONE_PIN, 800, 100);
         }
       } else if(min == 30 && sec == 0) {
-        tone(TONE_PIN, 800, 100);
+        if(speakerState > 0) tone(TONE_PIN, 800, 100);
         delay(200);
-        tone(TONE_PIN, 800, 100);
+        if(speakerState > 0) tone(TONE_PIN, 800, 100);
       } else if(min == 0 && sec == 0) {
-        tone(TONE_PIN, 800, 1000);
+        if(speakerState > 0) tone(TONE_PIN, 800, 1000);
       }
     }
-    digitalWrite(LED_BUILTIN, HIGH);
+    if(speakerState > 0) digitalWrite(LED_BUILTIN, HIGH);
     ledTimer = millis();
   }
 
@@ -216,24 +218,26 @@ void loop() {
       lcd.setCursor(0, 1);
       lcd.print("  LOST");
       usingTXID = 0;
-      tone(TONE_PIN, 50, 100);
+      if(speakerState > 0) tone(TONE_PIN, 50, 100);
       justPrintedSignalLost = true;
     }
   }
 
   if(ledTimer != 0 && millis()-ledTimer > 100) {
-    digitalWrite(LED_BUILTIN, LOW);
+    if(speakerState > 0) digitalWrite(LED_BUILTIN, LOW);
     ledTimer = 0;
   }
 
 
   if(enc.tick()) {
-    if(enc.held(2)) {
+    if(enc.held(3)) {
       rxStarted = false;
       usingTXID = 0;
       timeoutTimer = 0;
       detachInterrupt(0);
-      EEPROM.put(SAVED_STATE_OFFSET, 255);
+      uint8_t resetState = 255;
+      EEPROM.put(SAVED_STATE_OFFSET, resetState);
+      EEPROM.put(SAVED_SPEAKER_STATE_OFFSET, resetState);
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print(" RESET");
@@ -241,7 +245,7 @@ void loop() {
       lcd.print(" DEVICE");
       while(true) delay(100);
     }
-    if(enc.held(1)) {
+    if(enc.held(2)) {
       detachInterrupt(0);
       rxStarted = false;
       lcd.clear();
@@ -249,6 +253,30 @@ void loop() {
       lcd.print("TXID:");
       lcd.setCursor(0, 1);
       lcd.print(String(usingTXID));
+      delay(2000);
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("MUTED?");
+      lcd.setCursor(0, 1);
+      lcd.print(speakerState ? "No" : "Yes");
+      delay(2000);
+      rxStarted = true;
+      attachInterrupt(0, isr, CHANGE);
+    }
+    if(enc.held(1)) {
+      detachInterrupt(0);
+      rxStarted = false;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      if(speakerState == 1 || speakerState == 255) {
+        speakerState = 0;
+        EEPROM.put(SAVED_SPEAKER_STATE_OFFSET, speakerState);
+        lcd.print("MUTED");
+      } else if(speakerState == 0) {
+        speakerState = 1;
+        EEPROM.put(SAVED_SPEAKER_STATE_OFFSET, speakerState);
+        lcd.print("UNMUTED");
+      }
       delay(2000);
       rxStarted = true;
       attachInterrupt(0, isr, CHANGE);
