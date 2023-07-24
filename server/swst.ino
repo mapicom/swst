@@ -8,7 +8,7 @@
 #define WIFI_TIMEOUT 8000
 #define BLINK_INTERVAL 250
 #define DEFAULT_NTP "pool.ntp.org"
-#define FIRMWARE_VERSION "0.2"
+#define FIRMWARE_VERSION "1.0"
 
 String userSSID = "";
 String userPASS = "";

@@ -8,7 +8,7 @@
 #include <EEPROM.h>
 #include <EncButton.h>
 
-#define FIRMWARE_VERSION "0.2"
+#define FIRMWARE_VERSION "1.0"
 #define SIGNAL_TIMEOUT 10000
 #define TONE_PIN 9
 #define BLINK_INTERVAL 250
