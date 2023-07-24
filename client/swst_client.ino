@@ -3,7 +3,6 @@
 #define EB_CLICK 2000
 
 #include <Gyver433.h>
-#include <GyverWDT.h>
 #include <LiquidCrystal.h>
 #include <EEPROM.h>
 #include <EncButton.h>
