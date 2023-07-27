@@ -7,16 +7,18 @@
 #include <EEPROM.h>
 #include <EncButton.h>
 
-#define FIRMWARE_VERSION "1.0"
+#define FIRMWARE_VERSION "1.1"
 #define SIGNAL_TIMEOUT 10000
 #define TONE_PIN 9
 #define BLINK_INTERVAL 250
+#define MENUS 5
 
 // Addresses
-#define SAVED_TZ_HOUR_OFFSET 0x1
-#define SAVED_TZ_MIN_OFFSET SAVED_TZ_HOUR_OFFSET+4
-#define SAVED_STATE_OFFSET SAVED_TZ_MIN_OFFSET+4
-#define SAVED_SPEAKER_STATE_OFFSET SAVED_STATE_OFFSET+1
+#define SAVED_TZ_HOUR_OFFSET 0x1 // 4
+#define SAVED_TZ_MIN_OFFSET SAVED_TZ_HOUR_OFFSET+4 // 4
+#define SAVED_STATE_OFFSET SAVED_TZ_MIN_OFFSET+4 // 1
+#define SAVED_SPEAKER_STATE_OFFSET SAVED_STATE_OFFSET+1 // 1
+#define SAVED_TONE_FREQ_OFFSET SAVED_SPEAKER_STATE_OFFSET+1 // 2
 
 Gyver433_RX<2, 13> rx;
 LiquidCrystal lcd(A4, A5, A7, A6, A1, A0);
@@ -26,21 +28,81 @@ const char *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", 
 
 unsigned long timeoutTimer = 0;
 unsigned long ledTimer = 0;
+unsigned long menuTimer = 0;
 bool justPrintedSignalLost = false;
 uint8_t usingTXID = 0;
 bool rxStarted = false;
 uint8_t changeTZState = 0;
 int8_t selectedInt = 0;
 uint8_t speakerState = 1;
+uint16_t toneFreq = 800;
+uint8_t menu = 0;
+bool isMenuChange = false;
+bool menuSomethingChanged = false;
 
 long timezoneHours = 7;
 long timezoneMinutes = 0;
 long totalOffsetMinutes = timezoneHours * 60 + timezoneMinutes;
 
+void renderMenu(uint8_t menuId, bool changeState = false) {
+  if(menuId == 0) {
+    if(menu != 0) {
+      rxStarted = true;
+      attachInterrupt(0, isr, CHANGE);
+    }
+    menu = 0;
+    menuSomethingChanged = false;
+  } else {
+    if(changeState) menuTimer = 0;
+    else menuTimer = millis();
+    if(menu == 0) {
+      detachInterrupt(0);
+      rxStarted = false;
+      timeoutTimer = 0;
+    }
+    menu = menuId;
+    switch (menuId) {
+      case 1:
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        if(!changeState) lcd.print("> SOUND");
+        else lcd.print("  SOUND");
+        lcd.setCursor(0, 1);
+        if(!changeState) lcd.print("  " + String(speakerState));
+        else lcd.print("> " + String(speakerState));
+        break;
+      case 2:
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        if(!changeState) lcd.print("> FREQ");
+        else lcd.print("  FREQ");
+        lcd.setCursor(0, 1);
+        if(!changeState) lcd.print("  " + String(toneFreq));
+        else lcd.print("> " + String(toneFreq));
+        break;
+      case 3:
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("> INFO");
+        break;
+      case 4:
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("> SET TZ");
+        break;
+      case 5:
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("> RESET");
+    }
+  }
+}
+
 bool enterTZHour() {
   Serial.print("Please enter timezone hour (from -12 to 14) [default 0]: ");
   changeTZState = 1;
   selectedInt = 0;
+  lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("HOUR:");
   lcd.setCursor(0, 1);
@@ -90,13 +152,16 @@ void setup() {
   lcd.begin(8, 2);
   uint8_t savedState;
   EEPROM.get(SAVED_STATE_OFFSET, savedState);
-  EEPROM.get(SAVED_SPEAKER_STATE_OFFSET, speakerState);
   if(savedState == 255) {
     Serial.println("I see it's your first start up. If you want to change timezone press Enter at any moment!");
     timezoneHours = 0;
     timezoneMinutes = 0;
+    toneFreq = 800;
+    speakerState = 1;
     EEPROM.put(SAVED_TZ_HOUR_OFFSET, timezoneHours);
     EEPROM.put(SAVED_TZ_MIN_OFFSET, timezoneMinutes);
+    EEPROM.put(SAVED_SPEAKER_STATE_OFFSET, speakerState);
+    EEPROM.put(SAVED_TONE_FREQ_OFFSET, toneFreq);
     rxStarted = false;
     timeoutTimer = 0;
     usingTXID = 0;
@@ -104,6 +169,12 @@ void setup() {
     delay(1000);
     enterTZHour();
   } else {
+    if(toneFreq == 65535) {
+      toneFreq = 800;
+      EEPROM.put(SAVED_TONE_FREQ_OFFSET, toneFreq);
+    }
+    EEPROM.get(SAVED_SPEAKER_STATE_OFFSET, speakerState);
+    EEPROM.get(SAVED_TONE_FREQ_OFFSET, toneFreq);
     Serial.println("If you want to change timezone press Enter at any moment!");
     EEPROM.get(SAVED_TZ_HOUR_OFFSET, timezoneHours);
     EEPROM.get(SAVED_TZ_MIN_OFFSET, timezoneMinutes);
@@ -184,25 +255,24 @@ void loop() {
       hour = (totalMinutes / 60) % 24;
       min = totalMinutes % 60;
       char formatted[8] = {};
-      sprintf(formatted, "%02d:%02u:%02u", hour, min, sec);\
-      lcd.clear();
+      sprintf(formatted, "%02d:%02u:%02u", hour, min, sec);
       lcd.setCursor(0, 0);
       lcd.print(formatted);
-      sprintf(formatted, " %u %s", day, months[month-1]);
+      sprintf(formatted, " %u %s ", day, months[month-1]);
       lcd.setCursor(0, 1);
       lcd.print(formatted);
       timeoutTimer = millis();
       justPrintedSignalLost = false;
       if(min == 59) {
         if(sec == 55 || sec == 56 || sec == 57 || sec == 58 || sec == 59) {
-          if(speakerState > 0) tone(TONE_PIN, 800, 100);
+          if(speakerState > 0 && toneFreq != 65535) tone(TONE_PIN, toneFreq, 100);
         }
       } else if(min == 30 && sec == 0) {
-        if(speakerState > 0) tone(TONE_PIN, 800, 100);
+        if(speakerState > 0 && toneFreq != 65535) tone(TONE_PIN, toneFreq, 100);
         delay(200);
-        if(speakerState > 0) tone(TONE_PIN, 800, 100);
+        if(speakerState > 0 && toneFreq != 65535) tone(TONE_PIN, toneFreq, 100);
       } else if(min == 0 && sec == 0) {
-        if(speakerState > 0) tone(TONE_PIN, 800, 1000);
+        if(speakerState > 0 && toneFreq != 65535) tone(TONE_PIN, toneFreq, 1000);
       }
     }
     if(speakerState > 0) digitalWrite(LED_BUILTIN, HIGH);
@@ -227,24 +297,29 @@ void loop() {
     ledTimer = 0;
   }
 
+  if(!rxStarted && menu != 0) {
+    if(menuTimer > 0) {
+      if(millis() - menuTimer > 5000) {
+        menuTimer = 0;
+        if(menuSomethingChanged) { // We have a limited resource of entries in the EEPROM, so we use this small optimization
+          EEPROM.put(SAVED_SPEAKER_STATE_OFFSET, speakerState);
+          EEPROM.put(SAVED_TONE_FREQ_OFFSET, toneFreq);
+        }
+        renderMenu(0);
+        lcd.clear();
+        lcd.setCursor(0, 1);
+        lcd.print("AWAITING");
+        lcd.setCursor(0, 0);
+        lcd.print("SWST "FIRMWARE_VERSION);
+        enc.resetState();
+        return;
+      }
+    }
+  }
+
 
   if(enc.tick()) {
-    if(enc.held(3)) {
-      rxStarted = false;
-      usingTXID = 0;
-      timeoutTimer = 0;
-      detachInterrupt(0);
-      uint8_t resetState = 255;
-      EEPROM.put(SAVED_STATE_OFFSET, resetState);
-      EEPROM.put(SAVED_SPEAKER_STATE_OFFSET, resetState);
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print(" RESET");
-      lcd.setCursor(0, 1);
-      lcd.print(" DEVICE");
-      while(true) delay(100);
-    }
-    if(enc.held(2)) {
+    if(enc.held(1)) {
       detachInterrupt(0);
       rxStarted = false;
       lcd.clear();
@@ -262,32 +337,86 @@ void loop() {
       rxStarted = true;
       attachInterrupt(0, isr, CHANGE);
     }
-    if(enc.held(1)) {
-      detachInterrupt(0);
-      rxStarted = false;
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      if(speakerState == 1 || speakerState == 255) {
-        speakerState = 0;
-        EEPROM.put(SAVED_SPEAKER_STATE_OFFSET, speakerState);
-        lcd.print("MUTED");
-      } else if(speakerState == 0) {
-        speakerState = 1;
-        EEPROM.put(SAVED_SPEAKER_STATE_OFFSET, speakerState);
-        lcd.print("UNMUTED");
-      }
-      delay(2000);
-      rxStarted = true;
-      attachInterrupt(0, isr, CHANGE);
-    }
     if(enc.held(0)) {
-      detachInterrupt(0);
-      rxStarted = false;
-      usingTXID = 0;
-      timeoutTimer = 0;
-      lcd.clear();
-      delay(1000);
-      enterTZHour();
+      renderMenu(1);
+    }
+
+    if(!rxStarted && menu != 0) {
+      if(!isMenuChange) {
+        if(enc.click()) {
+          if(menu == 3) {
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("TXID:");
+            lcd.setCursor(0, 1);
+            lcd.print(String(usingTXID));
+            delay(2000);
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("MUTED?");
+            lcd.setCursor(0, 1);
+            lcd.print(speakerState ? "No" : "Yes");
+            delay(2000);
+            menuTimer = 0;
+            renderMenu(menu, false);
+          } else if(menu == 4) {
+            menu = 0;
+            enterTZHour();
+          } else if(menu == 5) {
+            menu = 0;
+            usingTXID = 0;
+            uint8_t resetState = 255;
+            toneFreq = 65535;
+            EEPROM.put(SAVED_STATE_OFFSET, resetState);
+            EEPROM.put(SAVED_SPEAKER_STATE_OFFSET, resetState);
+            EEPROM.put(SAVED_TONE_FREQ_OFFSET, toneFreq);
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print(" RESET");
+            lcd.setCursor(0, 1);
+            lcd.print(" DEVICE");
+            delay(100);
+            while(true) delay(100);
+          } else {
+            renderMenu(menu, true);
+            isMenuChange = true;
+          }
+        }
+        if(enc.left()) {
+          if(menu+1 > MENUS) menu = 1;
+          else menu++;
+          renderMenu(menu);
+        } else if(enc.right()) {
+          if(menu-1 < 1) menu = MENUS;
+          else menu--;
+          renderMenu(menu);
+        }
+      } else {
+        if(enc.click()) {
+          isMenuChange = false;
+          renderMenu(menu, false);
+        }
+        if(menu == 1) {
+          if(enc.right() || enc.left()) {
+            if(speakerState == 0) speakerState = 1;
+            else if(speakerState == 1) speakerState = 0;
+            menuSomethingChanged = true;
+            renderMenu(menu, true);
+          }
+        } else if(menu == 2) {
+          if(enc.left()) {
+            if(toneFreq+25 > 8000) toneFreq = 50;
+            else toneFreq += 25;
+            menuSomethingChanged = true;
+            renderMenu(menu, true);
+          } else if(enc.right()) {
+            if(toneFreq-25 < 50) toneFreq = 8000;
+            else toneFreq -= 25;
+            menuSomethingChanged = true;
+            renderMenu(menu, true);
+          }
+        }
+      }
     }
 
     if(!rxStarted && changeTZState == 1 || !rxStarted && changeTZState == 2) {
@@ -334,6 +463,7 @@ void loop() {
           lcd.print("changed.");
           delay(2000);
           EEPROM.put(SAVED_STATE_OFFSET, 1);
+          EEPROM.put(SAVED_SPEAKER_STATE_OFFSET, speakerState); // attempt to fix
           rxStarted = true;
           attachInterrupt(0, isr, CHANGE);
           lcd.clear();
