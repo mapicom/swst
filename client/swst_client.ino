@@ -258,7 +258,7 @@ void loop() {
       sprintf(formatted, "%02d:%02u:%02u", hour, min, sec);
       lcd.setCursor(0, 0);
       lcd.print(formatted);
-      sprintf(formatted, " %u %s ", day, months[month-1]);
+      sprintf(formatted, " %02u %s ", day, months[month-1]);
       lcd.setCursor(0, 1);
       lcd.print(formatted);
       timeoutTimer = millis();
