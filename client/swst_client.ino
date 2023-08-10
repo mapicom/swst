@@ -11,7 +11,7 @@
 #define SIGNAL_TIMEOUT 10000
 #define TONE_PIN 9
 #define BLINK_INTERVAL 250
-#define MENUS 5
+#define MENUS 6
 
 // Addresses
 #define SAVED_TZ_HOUR_OFFSET 0x1 // 4
@@ -19,6 +19,7 @@
 #define SAVED_STATE_OFFSET SAVED_TZ_MIN_OFFSET+4 // 1
 #define SAVED_SPEAKER_STATE_OFFSET SAVED_STATE_OFFSET+1 // 1
 #define SAVED_TONE_FREQ_OFFSET SAVED_SPEAKER_STATE_OFFSET+1 // 2
+#define SAVED_USB_STATE_OFFSET SAVED_TONE_FREQ_OFFSET+2 // 1
 
 Gyver433_RX<2, 13> rx;
 LiquidCrystal lcd(A4, A5, A7, A6, A1, A0);
@@ -39,6 +40,7 @@ uint16_t toneFreq = 800;
 uint8_t menu = 0;
 bool isMenuChange = false;
 bool menuSomethingChanged = false;
+uint8_t usbState = 0;
 
 long timezoneHours = 7;
 long timezoneMinutes = 0;
@@ -83,14 +85,23 @@ void renderMenu(uint8_t menuId, bool changeState = false) {
       case 3:
         lcd.clear();
         lcd.setCursor(0, 0);
-        lcd.print("> INFO");
+        if(!changeState) lcd.print("> USB");
+        else lcd.print("  USB");
+        lcd.setCursor(0, 1);
+        if(!changeState) lcd.print("  " + String(usbState));
+        else lcd.print("> " + String(usbState));
         break;
       case 4:
         lcd.clear();
         lcd.setCursor(0, 0);
-        lcd.print("> SET TZ");
+        lcd.print("> INFO");
         break;
       case 5:
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("> SET TZ");
+        break;
+      case 6:
         lcd.clear();
         lcd.setCursor(0, 0);
         lcd.print("> RESET");
@@ -99,7 +110,6 @@ void renderMenu(uint8_t menuId, bool changeState = false) {
 }
 
 bool enterTZHour() {
-  Serial.print("Please enter timezone hour (from -12 to 14) [default 0]: ");
   changeTZState = 1;
   selectedInt = 0;
   lcd.clear();
@@ -111,7 +121,6 @@ bool enterTZHour() {
 }
 
 bool enterTZMin() {
-  Serial.print("Please enter timezone minute (from 0 to 45) [default 0]: ");
   changeTZState = 2;
   selectedInt = 0;
   lcd.clear();
@@ -153,15 +162,16 @@ void setup() {
   uint8_t savedState;
   EEPROM.get(SAVED_STATE_OFFSET, savedState);
   if(savedState == 255) {
-    Serial.println("I see it's your first start up. If you want to change timezone press Enter at any moment!");
     timezoneHours = 0;
     timezoneMinutes = 0;
     toneFreq = 800;
     speakerState = 1;
+    usbState = 0;
     EEPROM.put(SAVED_TZ_HOUR_OFFSET, timezoneHours);
     EEPROM.put(SAVED_TZ_MIN_OFFSET, timezoneMinutes);
     EEPROM.put(SAVED_SPEAKER_STATE_OFFSET, speakerState);
     EEPROM.put(SAVED_TONE_FREQ_OFFSET, toneFreq);
+    EEPROM.put(SAVED_USB_STATE_OFFSET, usbState);
     rxStarted = false;
     timeoutTimer = 0;
     usingTXID = 0;
@@ -169,17 +179,20 @@ void setup() {
     delay(1000);
     enterTZHour();
   } else {
+    EEPROM.get(SAVED_SPEAKER_STATE_OFFSET, speakerState);
+    EEPROM.get(SAVED_TONE_FREQ_OFFSET, toneFreq);
     if(toneFreq == 65535) {
       toneFreq = 800;
       EEPROM.put(SAVED_TONE_FREQ_OFFSET, toneFreq);
     }
-    EEPROM.get(SAVED_SPEAKER_STATE_OFFSET, speakerState);
-    EEPROM.get(SAVED_TONE_FREQ_OFFSET, toneFreq);
-    Serial.println("If you want to change timezone press Enter at any moment!");
+    EEPROM.get(SAVED_USB_STATE_OFFSET, usbState);
+    if(usbState == 255) {
+      usbState = 0;
+      EEPROM.put(SAVED_USB_STATE_OFFSET, usbState);
+    }
     EEPROM.get(SAVED_TZ_HOUR_OFFSET, timezoneHours);
     EEPROM.get(SAVED_TZ_MIN_OFFSET, timezoneMinutes);
     totalOffsetMinutes = timezoneHours * 60 + timezoneMinutes;
-    Serial.println("TZ HOURS = " + String(timezoneHours) + "\nTZ MINS = " + String(timezoneMinutes) + "\nTOTAL MINS = " + String(totalOffsetMinutes));
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("USE UTC");
@@ -214,6 +227,9 @@ void loop() {
       if(usingTXID == 0) usingTXID = txid;
       else {
         if(usingTXID != txid) return;
+      }
+      if(usbState == 1) {
+        Serial.write(rx.buffer, rx.size);
       }
       uint8_t sec = rx.buffer[4];
       uint8_t min = rx.buffer[5];
@@ -304,6 +320,7 @@ void loop() {
         if(menuSomethingChanged) { // We have a limited resource of entries in the EEPROM, so we use this small optimization
           EEPROM.put(SAVED_SPEAKER_STATE_OFFSET, speakerState);
           EEPROM.put(SAVED_TONE_FREQ_OFFSET, toneFreq);
+          EEPROM.put(SAVED_USB_STATE_OFFSET, usbState);
         }
         renderMenu(0);
         lcd.clear();
@@ -344,7 +361,7 @@ void loop() {
     if(!rxStarted && menu != 0) {
       if(!isMenuChange) {
         if(enc.click()) {
-          if(menu == 3) {
+          if(menu == 4) {
             lcd.clear();
             lcd.setCursor(0, 0);
             lcd.print("TXID:");
@@ -359,10 +376,10 @@ void loop() {
             delay(2000);
             menuTimer = 0;
             renderMenu(menu, false);
-          } else if(menu == 4) {
+          } else if(menu == 5) {
             menu = 0;
             enterTZHour();
-          } else if(menu == 5) {
+          } else if(menu == 6) {
             menu = 0;
             usingTXID = 0;
             uint8_t resetState = 255;
@@ -370,6 +387,7 @@ void loop() {
             EEPROM.put(SAVED_STATE_OFFSET, resetState);
             EEPROM.put(SAVED_SPEAKER_STATE_OFFSET, resetState);
             EEPROM.put(SAVED_TONE_FREQ_OFFSET, toneFreq);
+            EEPROM.put(SAVED_USB_STATE_OFFSET, resetState);
             lcd.clear();
             lcd.setCursor(0, 0);
             lcd.print(" RESET");
@@ -415,6 +433,13 @@ void loop() {
             menuSomethingChanged = true;
             renderMenu(menu, true);
           }
+        } else if(menu == 3) {
+          if(enc.right() || enc.left()) {
+            if(usbState == 0) usbState = 1;
+            else if(usbState == 1) usbState = 0;
+            menuSomethingChanged = true;
+            renderMenu(menu, true);
+          }
         }
       }
     }
@@ -448,13 +473,11 @@ void loop() {
       else if(enc.click()) {
         if(changeTZState == 1) {
           timezoneHours = selectedInt;
-          Serial.println("\nYou entered " + String(timezoneHours) + ". Okay.");
           enterTZMin();
         } else if(changeTZState == 2) {
           timezoneMinutes = selectedInt;
           EEPROM.put(SAVED_TZ_HOUR_OFFSET, timezoneHours);
           EEPROM.put(SAVED_TZ_MIN_OFFSET, timezoneMinutes);
-          Serial.println("\nYou entered " + String(timezoneMinutes) + ". Okay.");
           totalOffsetMinutes = timezoneHours * 60 + timezoneMinutes;
           lcd.clear();
           lcd.setCursor(0, 0);
